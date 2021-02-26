@@ -20,6 +20,8 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
+import albumentations as A
+
 from utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, resample_segments, \
     clean_str
 from utils.torch_utils import torch_distributed_zero_first
@@ -561,18 +563,18 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1
             labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1
 
-        if self.augment:
-            # flip up-down
-            if random.random() < hyp['flipud']:
-                img = np.flipud(img)
-                if nL:
-                    labels[:, 2] = 1 - labels[:, 2]
+        # if self.augment:
+        #     # flip up-down
+        #     if random.random() < hyp['flipud']:
+        #         img = np.flipud(img)
+        #         if nL:
+        #             labels[:, 2] = 1 - labels[:, 2]
 
-            # flip left-right
-            if random.random() < hyp['fliplr']:
-                img = np.fliplr(img)
-                if nL:
-                    labels[:, 1] = 1 - labels[:, 1]
+        #     # flip left-right
+        #     if random.random() < hyp['fliplr']:
+        #         img = np.fliplr(img)
+        #         if nL:
+        #             labels[:, 1] = 1 - labels[:, 1]
 
         labels_out = torch.zeros((nL, 6))
         if nL:
@@ -849,6 +851,10 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     height = img.shape[0] + border[0] * 2  # shape(h,w,c)
     width = img.shape[1] + border[1] * 2
 
+    # print('dasd', img.shape)
+    # print(targets)
+    # print(segments)
+    
     # Center
     C = np.eye(3)
     C[0, 2] = -img.shape[1] / 2  # x translation (pixels)
@@ -927,6 +933,46 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
         targets = targets[i]
         targets[:, 1:5] = new[i]
 
+    n = len(targets)
+    if n:
+        labels = targets[:,0]
+        bboxes = targets[:,1:]
+        # print('before', targets)
+        # print('before', bboxes)
+    else:
+        labels = []
+        bboxes = []
+
+    height , width, c = img.shape
+    transform  = A.Compose([A.RandomSizedCrop(min_max_height=(int(height*0.7), height-1), height=height, width=width, 
+                                                p=1, interpolation = cv2.INTER_CUBIC),
+                            A.HorizontalFlip(p=0.5),
+                            A.RandomBrightnessContrast(p=0.2, contrast_limit=0),
+                            A.Rotate(limit=10, p=0.3)
+                            ],
+                            p=1.0,
+                            bbox_params=A.BboxParams(
+                                format='pascal_voc',
+                                min_area=0,
+                                min_visibility=0,
+                                label_fields=['labels']
+                            )
+                        )
+    transformed = transform(image=img, bboxes=bboxes, labels=labels)
+    img = transformed['image']
+    if n:
+        labels = transformed['labels']
+        bboxes = transformed['bboxes']
+        # print('after', bboxes)
+        
+        targets = np.zeros((len(labels), 5))
+        if len(labels) > 0:
+            targets[:,0] = labels
+            targets[:,1:] = bboxes
+
+
+    # print('after transform: ', img.shape)
+    # print('after transform: ', targets)
     return img, targets
 
 
