@@ -44,9 +44,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # Directories
     wdir = save_dir / 'weights'
     wdir.mkdir(parents=True, exist_ok=True)  # make dir
-    last = wdir / 'last.pt'
+
+    last = str(wdir) +  '/last{}.pt'
     best = wdir / 'best.pt'
     results_file = save_dir / 'results.txt'
+    results_file2 = save_dir / 'results_val_no_rad_no_back_ground.txt'
 
     # Save run settings
     with open(save_dir / 'hyp.yaml', 'w') as f:
@@ -64,6 +66,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']
     test_path = data_dict['val']
+    test_path2 = data_dict['val2']
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
@@ -195,6 +198,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if rank in [-1, 0]:
         ema.updates = start_epoch * nb // accumulate  # set EMA updates
         testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
+                                       hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
+                                       world_size=opt.world_size, workers=opt.workers,
+                                       pad=0.5, prefix=colorstr('val: '))[0]
+
+        testloader2 = create_dataloader(test_path2, imgsz_test, batch_size * 2, gs, opt,  # testloader
                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
                                        world_size=opt.world_size, workers=opt.workers,
                                        pad=0.5, prefix=colorstr('val: '))[0]
@@ -392,10 +400,31 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                             'wandb_id': wandb_run.id if wandb else None}
 
                 # Save last, best and delete
-                torch.save(ckpt, last)
+                torch.save(ckpt, last.format(epoch))
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                 del ckpt
+            
+
+
+            #val 2
+            if not opt.notest or final_epoch:  # Calculate mAP
+                results, maps, times = test.test(opt.data,
+                                                 batch_size=batch_size * 2,
+                                                 imgsz=imgsz_test,
+                                                 model=ema.ema,
+                                                 single_cls=opt.single_cls,
+                                                 dataloader=testloader2,
+                                                 save_dir=save_dir,
+                                                 verbose=nc < 50 and final_epoch,
+                                                 plots=plots and final_epoch,
+                                                 log_imgs=opt.log_imgs if wandb else 0,
+                                                 compute_loss=compute_loss)
+
+            # Write
+            with open(results_file2, 'a') as f:
+                f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
 
