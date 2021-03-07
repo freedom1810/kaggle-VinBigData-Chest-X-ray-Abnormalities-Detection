@@ -946,9 +946,11 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
     height , width, c = img.shape
     transform  = A.Compose([A.RandomSizedCrop(min_max_height=(int(height*0.7), height-1), height=height, width=width, 
                                                 p=1, interpolation = cv2.INTER_CUBIC),
+                            A.GaussNoise(var_limit=(150.0, 200.0), mean=0, p=0.5),
+                            A.RandomGamma(gamma_limit=(120, 120), p=0.5),
+                            A.RandomBrightnessContrast(contrast_limit=0, brightness_limit=0.2, brightness_by_max=True, p=0.5),
+                            A.Rotate(limit=10, p=0.5),
                             A.HorizontalFlip(p=0.5),
-                            A.RandomBrightnessContrast(p=0.2, contrast_limit=0),
-                            A.Rotate(limit=10, p=0.3)
                             ],
                             p=1.0,
                             bbox_params=A.BboxParams(
