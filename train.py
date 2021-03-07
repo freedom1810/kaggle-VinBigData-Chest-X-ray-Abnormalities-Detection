@@ -1,3 +1,6 @@
+# import time
+# time.sleep(11520)
+
 import argparse
 import logging
 import math
@@ -361,7 +364,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  single_cls=opt.single_cls,
                                                  dataloader=testloader,
                                                  save_dir=save_dir,
-                                                 verbose=nc < 50 and final_epoch,
+                                                 verbose=True,
                                                  plots=plots and final_epoch,
                                                  log_imgs=opt.log_imgs if wandb else 0,
                                                  compute_loss=compute_loss)
@@ -416,7 +419,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  single_cls=opt.single_cls,
                                                  dataloader=testloader2,
                                                  save_dir=save_dir,
-                                                 verbose=nc < 50 and final_epoch,
+                                                 verbose=True,
                                                  plots=plots and final_epoch,
                                                  log_imgs=opt.log_imgs if wandb else 0,
                                                  compute_loss=compute_loss)

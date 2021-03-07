@@ -27,7 +27,7 @@ def test(data,
          save_json=False,
          single_cls=False,
          augment=False,
-         verbose=False,
+         verbose=True,
          model=None,
          dataloader=None,
          save_dir=Path(''),  # for saving images
@@ -53,6 +53,7 @@ def test(data,
         # Load model
         model = attempt_load(weights, map_location=device)  # load FP32 model
         imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
+        print(model.model[-1].anchor_grid.squeeze())
 
         # Multi-GPU disabled, incompatible with .half() https://github.com/ultralytics/yolov5/issues/99
         # if device.type != 'cpu' and torch.cuda.device_count() > 1:
@@ -70,8 +71,8 @@ def test(data,
         data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
     check_dataset(data)  # check
     nc = 1 if single_cls else int(data['nc'])  # number of classes
-    iouv = torch.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
-    iouv = torch.cat((torch.tensor([0.4]), iouv)).to(device)
+    iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
+    # iouv = torch.cat((torch.tensor([0.4]), iouv)).to(device)
     niou = iouv.numel()
 
     # Logging
@@ -216,6 +217,9 @@ def test(data,
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
         p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
+        # print(p)
+        # print(r)
+
         ap40, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map40, map = p.mean(), r.mean(), ap40.mean(), ap.mean()
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
@@ -306,20 +310,22 @@ if __name__ == '__main__':
     # check_requirements()
 
     if opt.task in ['val', 'test']:  # run normally
-        test(opt.data,
-             opt.weights,
-             opt.batch_size,
-             opt.img_size,
-             opt.conf_thres,
-             opt.iou_thres,
-             opt.save_json,
-             opt.single_cls,
-             opt.augment,
-             opt.verbose,
-             save_txt=opt.save_txt | opt.save_hybrid,
-             save_hybrid=opt.save_hybrid,
-             save_conf=opt.save_conf,
-             )
+        for i in range(25, 50):
+            opt.weights = '/media/sonnh/kaggle-vin/runs/train/train12_fold1_hyp_kaggle/weights/last{}.pt'.format(i)
+            test(opt.data,
+                opt.weights,
+                opt.batch_size,
+                opt.img_size,
+                opt.conf_thres,
+                opt.iou_thres,
+                opt.save_json,
+                opt.single_cls,
+                opt.augment,
+                opt.verbose,
+                save_txt=opt.save_txt | opt.save_hybrid,
+                save_hybrid=opt.save_hybrid,
+                save_conf=opt.save_conf,
+                )
 
     elif opt.task == 'speed':  # speed benchmarks
         for w in opt.weights:
