@@ -71,8 +71,8 @@ def test(data,
         data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
     check_dataset(data)  # check
     nc = 1 if single_cls else int(data['nc'])  # number of classes
-    iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
-    # iouv = torch.cat((torch.tensor([0.4]), iouv)).to(device)
+    # iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
+    iouv = torch.linspace(0.4, 0.95, 12).to(device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
 
     # Logging
@@ -94,8 +94,9 @@ def test(data,
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
     coco91class = coco80_to_coco91_class()
-    s = ('%20s' + '%12s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@.5', 'mAP@.5:.95')
-    p, r, f1, mp, mr, map40, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    s = ('%20s' + '%12s' * 7) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@.4', 'mAP@.5', 'mAP@.5:.95')
+    p, r, f1, mp, mr, map40, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
+
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
@@ -217,18 +218,15 @@ def test(data,
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
         p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
-        # print(p)
-        # print(r)
-
-        ap40, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
-        mp, mr, map40, map = p.mean(), r.mean(), ap40.mean(), ap.mean()
+        ap40, ap50, ap = ap[:, 0], ap[:, 2], ap.mean(1)  # AP@0.5, AP@0.5:0.95
+        mp, mr, map40, map50, map = p.mean(), r.mean(), ap40.mean(), ap50.mean(), ap.mean()
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
     else:
         nt = torch.zeros(1)
 
     # Print results
-    pf = '%20s' + '%12.3g' * 6  # print format
-    print(pf % ('all', seen, nt.sum(), mp, mr, map40, map))
+    pf = '%20s' + '%12.3g' * 7  # print format
+    print(pf % ('all', seen, nt.sum(), mp, mr, map40, map50, map))
 
     # Print results per class
     if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
@@ -280,7 +278,7 @@ def test(data,
     maps = np.zeros(nc) + map
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
-    return (mp, mr, map40, map, *(loss.cpu() / len(dataloader)).tolist()), maps, t
+    return (mp, mr, map40, map50 ,map, *(loss.cpu() / len(dataloader)).tolist()), maps, t, names, ap40.tolist(), ap50.tolist()
 
 
 if __name__ == '__main__':
@@ -310,22 +308,22 @@ if __name__ == '__main__':
     # check_requirements()
 
     if opt.task in ['val', 'test']:  # run normally
-        for i in range(25, 50):
-            opt.weights = '/media/sonnh/kaggle-vin/runs/train/train12_fold1_hyp_kaggle/weights/last{}.pt'.format(i)
-            test(opt.data,
-                opt.weights,
-                opt.batch_size,
-                opt.img_size,
-                opt.conf_thres,
-                opt.iou_thres,
-                opt.save_json,
-                opt.single_cls,
-                opt.augment,
-                opt.verbose,
-                save_txt=opt.save_txt | opt.save_hybrid,
-                save_hybrid=opt.save_hybrid,
-                save_conf=opt.save_conf,
-                )
+    #     for i in range(25, 50):
+    #         opt.weights = '/media/sonnh/kaggle-vin/runs/train/train12_fold1_hyp_kaggle/weights/last{}.pt'.format(i)
+        test(opt.data,
+            opt.weights,
+            opt.batch_size,
+            opt.img_size,
+            opt.conf_thres,
+            opt.iou_thres,
+            opt.save_json,
+            opt.single_cls,
+            opt.augment,
+            opt.verbose,
+            save_txt=opt.save_txt | opt.save_hybrid,
+            save_hybrid=opt.save_hybrid,
+            save_conf=opt.save_conf,
+            )
 
     elif opt.task == 'speed':  # speed benchmarks
         for w in opt.weights:

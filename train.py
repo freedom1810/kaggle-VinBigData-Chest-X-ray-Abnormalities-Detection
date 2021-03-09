@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from threading import Thread
 
+import pandas as pd
+
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn
@@ -69,7 +71,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         check_dataset(data_dict)  # check
     train_path = data_dict['train']
     test_path = data_dict['val']
-    test_path2 = data_dict['val2']
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
@@ -145,24 +146,24 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # Resume
     start_epoch, best_fitness = 0, 0.0
     if pretrained:
-        # Optimizer
-        if ckpt['optimizer'] is not None:
-            optimizer.load_state_dict(ckpt['optimizer'])
-            best_fitness = ckpt['best_fitness']
+    #     # Optimizer
+    #     if ckpt['optimizer'] is not None:
+    #         optimizer.load_state_dict(ckpt['optimizer'])
+    #         best_fitness = ckpt['best_fitness']
 
-        # Results
-        if ckpt.get('training_results') is not None:
-            with open(results_file, 'w') as file:
-                file.write(ckpt['training_results'])  # write results.txt
+    #     # Results
+    #     if ckpt.get('training_results') is not None:
+    #         with open(results_file, 'w') as file:
+    #             file.write(ckpt['training_results'])  # write results.txt
 
-        # Epochs
-        start_epoch = ckpt['epoch'] + 1
-        if opt.resume:
-            assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
-        if epochs < start_epoch:
-            logger.info('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
-                        (weights, ckpt['epoch'], epochs))
-            epochs += ckpt['epoch']  # finetune additional epochs
+    #     # Epochs
+    #     start_epoch = ckpt['epoch'] + 1
+    #     if opt.resume:
+    #         assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
+    #     if epochs < start_epoch:
+    #         logger.info('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
+    #                     (weights, ckpt['epoch'], epochs))
+    #         epochs += ckpt['epoch']  # finetune additional epochs
 
         del ckpt, state_dict
 
@@ -205,10 +206,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                        world_size=opt.world_size, workers=opt.workers,
                                        pad=0.5, prefix=colorstr('val: '))[0]
 
-        testloader2 = create_dataloader(test_path2, imgsz_test, batch_size * 2, gs, opt,  # testloader
-                                       hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
-                                       world_size=opt.world_size, workers=opt.workers,
-                                       pad=0.5, prefix=colorstr('val: '))[0]
 
         if not opt.resume:
             labels = np.concatenate(dataset.labels, 0)
@@ -247,6 +244,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 f'Using {dataloader.num_workers} dataloader workers\n'
                 f'Logging results to {save_dir}\n'
                 f'Starting training for {epochs} epochs...')
+
+    res_csv = {'epoch': []}
+    res_csv_40 = {'epoch': []}
+
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
 
@@ -279,7 +280,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         # debug = 0
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
             
-            # if debug == 20: break
+            # if debug == 5: break
             # debug += 1
 
             ni = i + nb * epoch  # number integrated batches (since train start)
@@ -357,21 +358,37 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride', 'class_weights'])
             final_epoch = epoch + 1 == epochs
             if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times = test.test(opt.data,
+                results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
                                                  batch_size=batch_size * 2,
                                                  imgsz=imgsz_test,
                                                  model=ema.ema,
                                                  single_cls=opt.single_cls,
                                                  dataloader=testloader,
                                                  save_dir=save_dir,
-                                                 verbose=True,
+                                                 verbose=False,
                                                  plots=plots and final_epoch,
                                                  log_imgs=opt.log_imgs if wandb else 0,
                                                  compute_loss=compute_loss)
 
+            if len(res_csv) == 1:
+                for name in names_per_class:
+                    res_csv[name] = []
+                    res_csv_40[name] = []
+
+            res_csv['epoch'].append(epoch)
+            res_csv_40['epoch'].append(epoch)
+
+            for i, name in enumerate(names_per_class):
+                res_csv[name].append(ap50_per_class[i])
+                res_csv_40[name].append(ap40_per_class[i])
+            
+            pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class.csv')
+            pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class.csv')
+
+            
             # Write
             with open(results_file, 'a') as f:
-                f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+                f.write(s + '%10.4g' * 8 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
             if len(opt.name) and opt.bucket:
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
@@ -407,26 +424,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                 del ckpt
-            
-
-
-            #val 2
-            if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times = test.test(opt.data,
-                                                 batch_size=batch_size * 2,
-                                                 imgsz=imgsz_test,
-                                                 model=ema.ema,
-                                                 single_cls=opt.single_cls,
-                                                 dataloader=testloader2,
-                                                 save_dir=save_dir,
-                                                 verbose=True,
-                                                 plots=plots and final_epoch,
-                                                 log_imgs=opt.log_imgs if wandb else 0,
-                                                 compute_loss=compute_loss)
 
             # Write
-            with open(results_file2, 'a') as f:
-                f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+            # with open(results_file2, 'a') as f:
+            #     f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
