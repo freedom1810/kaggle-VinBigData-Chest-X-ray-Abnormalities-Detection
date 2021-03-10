@@ -39,12 +39,16 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
 
     bpr, aat = metric(m.anchor_grid.clone().cpu().view(-1, 2))
     print(f'anchors/target = {aat:.2f}, Best Possible Recall (BPR) = {bpr:.4f}', end='')
-    if bpr < 0.98:  # threshold to recompute
+    # if bpr < 0.98:  # threshold to recompute
+    if bpr < 1:
         print('. Attempting to improve anchors, please wait...')
         na = m.anchor_grid.numel() // 2  # number of anchors
         new_anchors = kmean_anchors(dataset, n=na, img_size=imgsz, thr=thr, gen=1000, verbose=False)
         new_bpr = metric(new_anchors.reshape(-1, 2))[0]
-        if new_bpr > bpr:  # replace anchors
+        print(new_bpr, bpr)
+        # if new_bpr > bpr:  # replace anchors
+        if 1:
+            
             new_anchors = torch.tensor(new_anchors, device=m.anchors.device).type_as(m.anchors)
             m.anchor_grid[:] = new_anchors.clone().view_as(m.anchor_grid)  # for inference
             m.anchors[:] = new_anchors.clone().view_as(m.anchors) / m.stride.to(m.anchors.device).view(-1, 1, 1)  # loss
