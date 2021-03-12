@@ -146,24 +146,24 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # Resume
     start_epoch, best_fitness = 0, 0.0
     if pretrained:
-    #     # Optimizer
-    #     if ckpt['optimizer'] is not None:
-    #         optimizer.load_state_dict(ckpt['optimizer'])
-    #         best_fitness = ckpt['best_fitness']
+        # Optimizer
+        if ckpt['optimizer'] is not None:
+            optimizer.load_state_dict(ckpt['optimizer'])
+            best_fitness = ckpt['best_fitness']
 
-    #     # Results
-    #     if ckpt.get('training_results') is not None:
-    #         with open(results_file, 'w') as file:
-    #             file.write(ckpt['training_results'])  # write results.txt
+        # Results
+        if ckpt.get('training_results') is not None:
+            with open(results_file, 'w') as file:
+                file.write(ckpt['training_results'])  # write results.txt
 
-    #     # Epochs
-    #     start_epoch = ckpt['epoch'] + 1
-    #     if opt.resume:
-    #         assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
-    #     if epochs < start_epoch:
-    #         logger.info('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
-    #                     (weights, ckpt['epoch'], epochs))
-    #         epochs += ckpt['epoch']  # finetune additional epochs
+        # Epochs
+        start_epoch = ckpt['epoch'] + 1
+        if opt.resume:
+            assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
+        if epochs < start_epoch:
+            logger.info('%s has been trained for %g epochs. Fine-tuning for %g additional epochs.' %
+                        (weights, ckpt['epoch'], epochs))
+            epochs += ckpt['epoch']  # finetune additional epochs
 
         del ckpt, state_dict
 
@@ -562,7 +562,15 @@ if __name__ == '__main__':
         if opt.global_rank in [-1, 0]:
             logger.info(f'Start Tensorboard with "tensorboard --logdir {opt.project}", view at http://localhost:6006/')
             tb_writer = SummaryWriter(opt.save_dir)  # Tensorboard
-        train(hyp, opt, device, tb_writer, wandb)
+        
+        while True:
+            try:
+                train(hyp, opt, device, tb_writer, wandb)
+                break
+            except:
+                import time
+                time.sleep(60)
+                pass
 
     # Evolve hyperparameters (optional)
     else:

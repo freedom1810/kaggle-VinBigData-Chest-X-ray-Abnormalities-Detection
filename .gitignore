@@ -23,6 +23,9 @@
 command
 runs
 data.p
+strip.py
+14_class
+namnh
 
 *.cfg
 !cfg/yolov3*.cfg

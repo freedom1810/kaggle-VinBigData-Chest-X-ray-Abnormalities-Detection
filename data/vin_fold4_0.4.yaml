@@ -1,8 +1,8 @@
 
 # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
 # train: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1/fold0/images/train
-train: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/images/train_merge_only_box/
-# val: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/images/val_merge_only_box/
+train: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold4/images/train_merge_only_box
+val: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold4/images/val_merge_only_box
 # val: /home/hana/sonnh/kaggle-vin/dataset/images_only/test
 # val2: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1/fold1/images/val_merge_box_no_back_ground
 
