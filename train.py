@@ -40,6 +40,29 @@ from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_di
 
 logger = logging.getLogger(__name__)
 
+def summary_res_ap_40(save_dir):
+    df = pd.read_csv('{}/ap_40_per_class_per_rad.csv'.format(save_dir))
+
+
+    res_csv_40 = {'epoch': df['epoch'].tolist()}
+    for name in range(14):
+        for r in ['val_r8', 'val_r9', 'val_r10']:
+            if name not in res_csv_40:
+                res_csv_40[name] = df['{}_{}'.format(name, r)]
+            else:
+                res_csv_40[name] += df['{}_{}'.format(name, r)]
+    res_csv_40= pd.DataFrame(res_csv_40)
+    res_csv_40.head()
+
+    for name in range(14):
+        res_csv_40[name]/=3
+    res_csv_40.head()
+
+    res_csv_40["ap"] = res_csv_40[range(14)].sum(axis=1) /14
+
+
+    res_csv_40.to_csv('{}/ap_40_per_class_per_rad_summary.csv'.format(save_dir))
+
 
 def train(hyp, opt, device, tb_writer=None, wandb=None):
     logger.info(colorstr('hyperparameters: ') + ', '.join(f'{k}={v}' for k, v in hyp.items()))
@@ -67,8 +90,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     init_seeds(2 + rank)
     with open(opt.data) as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
-    with torch_distributed_zero_first(rank):
-        check_dataset(data_dict)  # check
+    # with torch_distributed_zero_first(rank):
+    #     check_dataset(data_dict)  # check
     train_path = data_dict['train']
     test_path = data_dict['val']
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
@@ -152,9 +175,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             best_fitness = ckpt['best_fitness']
 
         # Results
-        if ckpt.get('training_results') is not None:
-            with open(results_file, 'w') as file:
-                file.write(ckpt['training_results'])  # write results.txt
+        # if ckpt.get('training_results') is not None:
+        #     with open(results_file, 'w') as file:
+        #         file.write(ckpt['training_results'])  # write results.txt
 
         # Epochs
         start_epoch = ckpt['epoch'] + 1
@@ -201,10 +224,15 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # Process 0
     if rank in [-1, 0]:
         ema.updates = start_epoch * nb // accumulate  # set EMA updates
-        testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
-                                       hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
-                                       world_size=opt.world_size, workers=opt.workers,
-                                       pad=0.5, prefix=colorstr('val: '))[0]
+
+
+        test_loader = {}
+        for key in ['val_r8', 'val_r9', 'val_r10', 'val_other']:
+            test_path = data_dict[key]
+            test_loader[key] = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
+                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
+                                        world_size=opt.world_size, workers=opt.workers,
+                                        pad=0.5, prefix=colorstr('val: '))[0]
 
 
         if not opt.resume:
@@ -247,6 +275,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     res_csv = {'epoch': []}
     res_csv_40 = {'epoch': []}
+
+
+    for r in ['val_r8', 'val_r9', 'val_r10']:
+        for name in range(14):
+            res_csv['{}_{}'.format(name, r)] = []
+            res_csv_40['{}_{}'.format(name, r)] = []
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
@@ -357,118 +391,53 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if ema:
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride', 'class_weights'])
             final_epoch = epoch + 1 == epochs
-            if not opt.notest or final_epoch:  # Calculate mAP
-                results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
-                                                 batch_size=batch_size * 2,
-                                                 imgsz=imgsz_test,
-                                                 model=ema.ema,
-                                                 single_cls=opt.single_cls,
-                                                 dataloader=testloader,
-                                                 save_dir=save_dir,
-                                                 verbose=False,
-                                                 plots=plots and final_epoch,
-                                                 log_imgs=opt.log_imgs if wandb else 0,
-                                                 compute_loss=compute_loss)
-
-            if len(res_csv) == 1:
-                for name in names_per_class:
-                    res_csv[name] = []
-                    res_csv_40[name] = []
 
             res_csv['epoch'].append(epoch)
             res_csv_40['epoch'].append(epoch)
 
-            for i, name in enumerate(names_per_class):
-                res_csv[name].append(ap50_per_class[i])
-                res_csv_40[name].append(ap40_per_class[i])
-            
-            pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class.csv')
-            pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class.csv')
+            # if not opt.notest or final_epoch:  # Calculate mAP
+            for rad in ['val_r8', 'val_r9', 'val_r10']:
+                results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
+                                                batch_size=batch_size * 2,
+                                                imgsz=imgsz_test,
+                                                model=ema.ema,
+                                                single_cls=opt.single_cls,
+                                                dataloader=test_loader[rad],
+                                                save_dir=save_dir,
+                                                verbose=False,
+                                                plots=plots and final_epoch,
+                                                log_imgs=opt.log_imgs if wandb else 0,
+                                                compute_loss=compute_loss)
 
-            
-            # Write
-            with open(results_file, 'a') as f:
-                f.write(s + '%10.4g' * 8 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
-            if len(opt.name) and opt.bucket:
-                os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
+                
+                # print(names_per_class)
+                # print(len(ap50_per_class))
+                for i, name in enumerate(names_per_class):
+                    res_csv['{}_{}'.format(name, rad)].append(ap50_per_class[i])
+                    res_csv_40['{}_{}'.format(name, rad)].append(ap40_per_class[i])
+                
+            pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class_per_rad.csv')
+            pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class_per_rad.csv')
 
-            # Log
-            tags = ['train/box_loss', 'train/obj_loss', 'train/cls_loss',  # train loss
-                    'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',
-                    'val/box_loss', 'val/obj_loss', 'val/cls_loss',  # val loss
-                    'x/lr0', 'x/lr1', 'x/lr2']  # params
-            for x, tag in zip(list(mloss[:-1]) + list(results) + lr, tags):
-                if tb_writer:
-                    tb_writer.add_scalar(tag, x, epoch)  # tensorboard
-                if wandb:
-                    wandb.log({tag: x}, step=epoch, commit=tag == tags[-1])  # W&B
-
-            # Update best mAP
-            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
-            if fi > best_fitness:
-                best_fitness = fi
+            summary_res_ap_40(save_dir)
 
             # Save model
             save = (not opt.nosave) or (final_epoch and not opt.evolve)
             if save:
-                with open(results_file, 'r') as f:  # create checkpoint
-                    ckpt = {'epoch': epoch,
-                            'best_fitness': best_fitness,
-                            'training_results': f.read(),
-                            'model': ema.ema,
-                            'optimizer': None if final_epoch else optimizer.state_dict(),
-                            'wandb_id': wandb_run.id if wandb else None}
+
+                ckpt = {'epoch': epoch,
+                        'best_fitness': best_fitness,
+
+                        'model': ema.ema,
+                        'optimizer': None if final_epoch else optimizer.state_dict(),
+                        'wandb_id': wandb_run.id if wandb else None}
 
                 # Save last, best and delete
                 torch.save(ckpt, last.format(epoch))
-                if best_fitness == fi:
-                    torch.save(ckpt, best)
                 del ckpt
-
-            # Write
-            # with open(results_file2, 'a') as f:
-            #     f.write(s + '%10.4g' * 7 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
-
-    if rank in [-1, 0]:
-        # Strip optimizers
-        final = best if best.exists() else last  # final model
-        for f in [last, best]:
-            if f.exists():
-                strip_optimizer(f)  # strip optimizers
-        if opt.bucket:
-            os.system(f'gsutil cp {final} gs://{opt.bucket}/weights')  # upload
-
-        # Plots
-        if plots:
-            plot_results(save_dir=save_dir)  # save as results.png
-            if wandb:
-                files = ['results.png', 'confusion_matrix.png', *[f'{x}_curve.png' for x in ('F1', 'PR', 'P', 'R')]]
-                wandb.log({"Results": [wandb.Image(str(save_dir / f), caption=f) for f in files
-                                       if (save_dir / f).exists()]})
-                if opt.log_artifacts:
-                    wandb.log_artifact(artifact_or_path=str(final), type='model', name=save_dir.stem)
-
-        # Test best.pt
-        logger.info('%g epochs completed in %.3f hours.\n' % (epoch - start_epoch + 1, (time.time() - t0) / 3600))
-        if opt.data.endswith('coco.yaml') and nc == 80:  # if COCO
-            for conf, iou, save_json in ([0.25, 0.45, False], [0.001, 0.65, True]):  # speed, mAP tests
-                results, _, _ = test.test(opt.data,
-                                          batch_size=batch_size * 2,
-                                          imgsz=imgsz_test,
-                                          conf_thres=conf,
-                                          iou_thres=iou,
-                                          model=attempt_load(final, device).half(),
-                                          single_cls=opt.single_cls,
-                                          dataloader=testloader,
-                                          save_dir=save_dir,
-                                          save_json=save_json,
-                                          plots=False)
-
-    else:
-        dist.destroy_process_group()
 
     wandb.run.finish() if wandb and wandb.run else None
     torch.cuda.empty_cache()
@@ -564,13 +533,13 @@ if __name__ == '__main__':
             tb_writer = SummaryWriter(opt.save_dir)  # Tensorboard
         
         while True:
-            try:
-                train(hyp, opt, device, tb_writer, wandb)
-                break
-            except:
-                import time
-                time.sleep(60)
-                pass
+            # try:
+            train(hyp, opt, device, tb_writer, wandb)
+                # break
+            # except:
+                # import time
+                # time.sleep(60)
+                # pass
 
     # Evolve hyperparameters (optional)
     else:

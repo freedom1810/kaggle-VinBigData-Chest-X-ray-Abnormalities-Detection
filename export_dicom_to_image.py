@@ -37,16 +37,18 @@ def read_xray(path, voi_lut = True, fix_monochrome = True):
     return data
 
 def save_image(dicom_name):
-    folder_dicom = '/home/hana/sonnh/kaggle-vin/dataset/original_data/train'
-    folder_save = '/home/hana/sonnh/kaggle-vin/dataset/images_only/train2'
-    img = read_xray(os.path.join(folder_dicom, dicom_name), voi_lut = True, fix_monochrome = True)
-    cv2.imwrite('{}.png'.format(os.path.join(folder_save, dicom_name)), img)
+    folder_dicom = '/home/hana/sonnh/kaggle-vin/dataset/images_only/train'
+    folder_save = '/home/hana/sonnh/kaggle-vin/dataset/images_only/train_jpg'
+    # img = read_xray(os.path.join(folder_dicom, dicom_name), voi_lut = True, fix_monochrome = True)
+    # print(os.path.join(os.path.join(folder_dicom, dicom_name + '.png')))
+    img = cv2.imread(os.path.join(folder_dicom, dicom_name))
+    cv2.imwrite('{}.jpg'.format(os.path.join(folder_save, dicom_name.split('.')[0])), img)
     return dicom_name, img.shape
     
 import os
 from multiprocessing import Pool
 
-folder_dicom = '/home/hana/sonnh/kaggle-vin/dataset/original_data/train'
+folder_dicom = '/home/hana/sonnh/kaggle-vin/dataset/images_only/train'
 list_dicom_name = os.listdir(folder_dicom)
 pool = Pool()
 import time

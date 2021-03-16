@@ -9,6 +9,8 @@ import torch
 import yaml
 from tqdm import tqdm
 
+import pandas as pd
+
 from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
@@ -17,7 +19,18 @@ from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized
 
+def load_model(weights, opt):
+    
+    device = select_device(opt.device, batch_size=opt.batch_size)
+    print('device ', device)
 
+    # Load model
+    model = attempt_load(weights, map_location=device)  # load FP32 model
+    imgsz = check_img_size(opt.img_size, s=model.stride.max())  # check img_size
+    print(model.model[-1].anchor_grid.squeeze())
+
+    return model, imgsz
+    
 def test(data,
          weights=None,
          batch_size=32,
@@ -27,7 +40,7 @@ def test(data,
          save_json=False,
          single_cls=False,
          augment=False,
-         verbose=False,
+         verbose=True,
          model=None,
          dataloader=None,
          save_dir=Path(''),  # for saving images
@@ -44,31 +57,27 @@ def test(data,
 
     else:  # called directly
         set_logging()
-        device = select_device(opt.device, batch_size=batch_size)
 
         # Directories
         save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
         (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
-        # Load model
-        model = attempt_load(weights, map_location=device)  # load FP32 model
-        imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
-        print(model.model[-1].anchor_grid.squeeze())
-
         # Multi-GPU disabled, incompatible with .half() https://github.com/ultralytics/yolov5/issues/99
         # if device.type != 'cpu' and torch.cuda.device_count() > 1:
-        #     model = nn.DataParallel(model)
+        # model = torch.nn.DataParallel(model,device_ids=[0, 1])
 
     # Half
+    half = True
     half = device.type != 'cpu'  # half precision only supported on CUDA
     if half:
         model.half()
 
     # Configure
     model.eval()
-    is_coco = data.endswith('coco.yaml')  # is COCO dataset
-    with open(data) as f:
-        data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+    is_coco = False
+    # is_coco = data.endswith('coco.yaml')  # is COCO dataset
+    # with open(data) as f:
+    #     data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
     # check_dataset(data)  # check
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     # iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
@@ -215,7 +224,7 @@ def test(data,
             Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
             f = save_dir / f'test_batch{batch_i}_pred.jpg'  # predictions
             Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
-
+        # if batch_i == 10:break
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
@@ -233,7 +242,7 @@ def test(data,
     # Print results per class
     if (verbose or (nc < 50 and not training)) and nc > 1 and len(stats):
         for i, c in enumerate(ap_class):
-            print(pf % (names[c], seen, nt[c], p[i], r[i], ap40[i], ap[i]))
+            print(pf % (names[c], seen, nt[c], p[i], r[i], ap40[i], ap50[i], ap[i]))
 
     # Print speeds
     t = tuple(x / seen * 1E3 for x in (t0, t1, t0 + t1)) + (imgsz, imgsz, batch_size)  # tuple
@@ -309,38 +318,72 @@ if __name__ == '__main__':
     print(opt)
     # check_requirements()
 
+
+    data_path = {'val_r8': '/home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R8',
+                'val_r9': '/home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R9',
+                'val_r10': '/home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R10',}
+                # 'val_other': '/home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R_other'}
+    data_loader = {}
+    
+
+
+    res_csv = {'epoch': []}
+    res_csv_40 = {'epoch': []}
+
+
+    for r in ['val_r8', 'val_r9', 'val_r10']:
+        for name in range(14):
+        
+            res_csv['{}_{}'.format(name, r)] = []
+            res_csv_40['{}_{}'.format(name, r)] = []
+
+    # save_dir = './runs/train/exp72'
+    mdoel_path = '/media/sonnh/kaggle-vin/runs/train/train19_fold1_rad_split'
     if opt.task in ['val', 'test']:  # run normally
-    #     for i in [50,33,57,36,55,31,54,71,80,53,83,60]:
-    #         opt.weights = '/media/sonnh/kaggle-vin/runs/train/train19_fold1_rad_split/weights/last{}.pt'.format(i)
-        test(opt.data,
-            opt.weights,
-            opt.batch_size,
-            opt.img_size,
-            opt.conf_thres,
-            opt.iou_thres,
-            opt.save_json,
-            opt.single_cls,
-            opt.augment,
-            opt.verbose,
-            save_txt=opt.save_txt | opt.save_hybrid,
-            save_hybrid=opt.save_hybrid,
-            save_conf=opt.save_conf,
-            )
+        for epoch in range(30, 100):
+            res_csv['epoch'].append(epoch)
+            res_csv_40['epoch'].append(epoch)
 
-    elif opt.task == 'speed':  # speed benchmarks
-        for w in opt.weights:
-            test(opt.data, w, opt.batch_size, opt.img_size, 0.25, 0.45, save_json=False, plots=False)
+            opt.weights = '{}/weights/last{}.pt'.format(mdoel_path, epoch)
+            model, imgsz = load_model(opt.weights, opt)
 
-    elif opt.task == 'study':  # run over a range of settings and save/plot
-        x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
-        for w in opt.weights:
-            f = f'study_{Path(opt.data).stem}_{Path(w).stem}.txt'  # filename to save to
-            y = []  # y axis
-            for i in x:  # img-size
-                print(f'\nRunning {f} point {i}...')
-                r, _, t = test(opt.data, w, opt.batch_size, i, opt.conf_thres, opt.iou_thres, opt.save_json,
-                               plots=False)
-                y.append(r + t)  # results and times
-            np.savetxt(f, y, fmt='%10.4g')  # save
-        os.system('zip -r study.zip study_*.txt')
-        plot_study_txt(x=x)  # plot
+            for rad in data_path:
+                if rad not in data_loader:
+                    data_loader[rad] = create_dataloader(data_path[rad], imgsz, opt.batch_size, 
+                                                        model.stride.max(), opt, pad=0.5, rect=True,
+                                                        prefix=colorstr('test: ' if opt.task == 'test' else 'val: '))[0]
+
+                with open(opt.data) as f:
+                    data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+                check_dataset(data)  # check
+                data['val'] = data_path[rad]
+                save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
+                save_txt = False
+                (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+                results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test(data,
+                                                                                            opt.weights,
+                                                                                            opt.batch_size,
+                                                                                            imgsz,
+                                                                                            opt.conf_thres,
+                                                                                            opt.iou_thres,
+                                                                                            opt.save_json,
+                                                                                            opt.single_cls,
+                                                                                            opt.augment,
+                                                                                            opt.verbose,
+                                                                                            model = model,
+                                                                                            dataloader = data_loader[rad],
+                                                                                            save_dir = save_dir,
+                                                                                            save_txt=opt.save_txt | opt.save_hybrid,
+                                                                                            save_hybrid=opt.save_hybrid,
+                                                                                            save_conf=opt.save_conf,
+                                                                                            )
+                
+
+                
+                print(len(ap50_per_class))
+                for i, name in enumerate(names_per_class):
+                    res_csv['{}_{}'.format(name, rad)].append(ap50_per_class[i])
+                    res_csv_40['{}_{}'.format(name, rad)].append(ap40_per_class[i])
+                
+            pd.DataFrame(res_csv).to_csv('{}/ap_50_per_class_per_rad.csv'.format(mdoel_path))
+            pd.DataFrame(res_csv_40).to_csv('{}/ap_40_per_class_per_rad.csv'.format(mdoel_path))
