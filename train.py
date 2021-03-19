@@ -225,9 +225,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if rank in [-1, 0]:
         ema.updates = start_epoch * nb // accumulate  # set EMA updates
 
-
+        # val_ = ['val_r8', 'val_r9', 'val_r10', 'val_all']
+        val_ = ['val_all']
         test_loader = {}
-        for key in ['val_r8', 'val_r9', 'val_r10', 'val_other']:
+        for key in val_:
             test_path = data_dict[key]
             test_loader[key] = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
                                         hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
@@ -277,7 +278,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     res_csv_40 = {'epoch': []}
 
 
-    for r in ['val_r8', 'val_r9', 'val_r10']:
+    for r in val_:
         for name in range(14):
             res_csv['{}_{}'.format(name, r)] = []
             res_csv_40['{}_{}'.format(name, r)] = []
@@ -396,7 +397,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             res_csv_40['epoch'].append(epoch)
 
             # if not opt.notest or final_epoch:  # Calculate mAP
-            for rad in ['val_r8', 'val_r9', 'val_r10']:
+            for rad in val_:
                 results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
                                                 batch_size=batch_size * 2,
                                                 imgsz=imgsz_test,
@@ -408,6 +409,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                 plots=plots and final_epoch,
                                                 log_imgs=opt.log_imgs if wandb else 0,
                                                 compute_loss=compute_loss)
+                # Write
+                results_file = '{}/results_{}.txt'.format(str(save_dir), rad)
+
+                with open(results_file, 'a') as f:
+                    f.write(s + '%10.4g' * 8 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
 
                 
                 # print(names_per_class)
@@ -419,7 +425,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class_per_rad.csv')
             pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class_per_rad.csv')
 
-            summary_res_ap_40(save_dir)
+            # summary_res_ap_40(save_dir)
 
             # Save model
             save = (not opt.nosave) or (final_epoch and not opt.evolve)

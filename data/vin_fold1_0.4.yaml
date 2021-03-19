@@ -4,6 +4,7 @@
 train: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/train_merge_only_box
 # val: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_merge_only_box
 val: /home/hana/sonnh/kaggle-vin/dataset/images_only/test
+# val: /home/hana/sonnh/kaggle-vin/kaggle-VinBigData-Chest-X-ray-Abnormalities-Detection/dataset/fold2/images/val_all
 val_r8: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R8
 val_r9: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R9
 val_r10: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R10
