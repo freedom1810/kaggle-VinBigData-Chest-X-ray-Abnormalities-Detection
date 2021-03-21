@@ -538,9 +538,9 @@ if __name__ == '__main__':
             logger.info(f'Start Tensorboard with "tensorboard --logdir {opt.project}", view at http://localhost:6006/')
             tb_writer = SummaryWriter(opt.save_dir)  # Tensorboard
         
-        while True:
+        # while True:
             # try:
-            train(hyp, opt, device, tb_writer, wandb)
+        train(hyp, opt, device, tb_writer, wandb)
                 # break
             # except:
                 # import time
