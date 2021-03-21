@@ -368,6 +368,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
                 pbar.set_description(s)
 
+                with open(results_file, 'a') as f:
+                    f.write(s + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+
                 # Plot
                 if plots and ni < 3:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
@@ -386,44 +389,46 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         lr = [x['lr'] for x in optimizer.param_groups]  # for tensorboard
         scheduler.step()
 
+
+
         # DDP process 0 or single-GPU
         if rank in [-1, 0]:
             # mAP
             if ema:
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride', 'class_weights'])
             final_epoch = epoch + 1 == epochs
+            
+            # res_csv['epoch'].append(epoch)
+            # res_csv_40['epoch'].append(epoch)
 
-            res_csv['epoch'].append(epoch)
-            res_csv_40['epoch'].append(epoch)
+            # # if not opt.notest or final_epoch:  # Calculate mAP
+            # for rad in val_:
+            #     results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
+            #                                     batch_size=batch_size * 2,
+            #                                     imgsz=imgsz_test,
+            #                                     model=ema.ema,
+            #                                     single_cls=opt.single_cls,
+            #                                     dataloader=test_loader[rad],
+            #                                     save_dir=save_dir,
+            #                                     verbose=False,
+            #                                     plots=plots and final_epoch,
+            #                                     log_imgs=opt.log_imgs if wandb else 0,
+            #                                     compute_loss=compute_loss)
+            #     # Write
+            #     results_file = '{}/results_{}.txt'.format(str(save_dir), rad)
 
-            # if not opt.notest or final_epoch:  # Calculate mAP
-            for rad in val_:
-                results, maps, times, names_per_class, ap40_per_class, ap50_per_class = test.test(opt.data,
-                                                batch_size=batch_size * 2,
-                                                imgsz=imgsz_test,
-                                                model=ema.ema,
-                                                single_cls=opt.single_cls,
-                                                dataloader=test_loader[rad],
-                                                save_dir=save_dir,
-                                                verbose=False,
-                                                plots=plots and final_epoch,
-                                                log_imgs=opt.log_imgs if wandb else 0,
-                                                compute_loss=compute_loss)
-                # Write
-                results_file = '{}/results_{}.txt'.format(str(save_dir), rad)
-
-                with open(results_file, 'a') as f:
-                    f.write(s + '%10.4g' * 8 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
+            #     with open(results_file, 'a') as f:
+            #         f.write(s + '%10.4g' * 8 % results + '\n')  # P, R, mAP@.5, mAP@.5-.95, val_loss(box, obj, cls)
 
                 
-                # print(names_per_class)
-                # print(len(ap50_per_class))
-                for i, name in enumerate(names_per_class):
-                    res_csv['{}_{}'.format(name, rad)].append(ap50_per_class[i])
-                    res_csv_40['{}_{}'.format(name, rad)].append(ap40_per_class[i])
+            #     # print(names_per_class)
+            #     # print(len(ap50_per_class))
+            #     for i, name in enumerate(names_per_class):
+            #         res_csv['{}_{}'.format(name, rad)].append(ap50_per_class[i])
+            #         res_csv_40['{}_{}'.format(name, rad)].append(ap40_per_class[i])
                 
-            pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class_per_rad.csv')
-            pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class_per_rad.csv')
+            # pd.DataFrame(res_csv).to_csv(save_dir/'ap_50_per_class_per_rad.csv')
+            # pd.DataFrame(res_csv_40).to_csv(save_dir/'ap_40_per_class_per_rad.csv')
 
             # summary_res_ap_40(save_dir)
 
