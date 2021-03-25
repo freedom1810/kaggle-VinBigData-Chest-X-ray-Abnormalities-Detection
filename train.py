@@ -62,6 +62,13 @@ def summary_res_ap_40(save_dir):
 
 
     res_csv_40.to_csv('{}/ap_40_per_class_per_rad_summary.csv'.format(save_dir))
+def get_only_bachbone_state_dict(state_dict):
+    res = {}
+    for key in state_dict:
+        num_layer = int(key.split('.')[1])
+        if num_layer < 12:
+            res[key] = state_dict[key]
+    return res
 
 
 def train(hyp, opt, device, tb_writer=None, wandb=None):
@@ -110,13 +117,19 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         exclude = ['anchor'] if opt.cfg or hyp.get('anchors') else []  # exclude keys
         state_dict = ckpt['model'].float().state_dict()  # to FP32
         state_dict = intersect_dicts(state_dict, model.state_dict(), exclude=exclude)  # intersect
+        state_dict = get_only_bachbone_state_dict(state_dict)
         model.load_state_dict(state_dict, strict=False)  # load
+        # print(state_dict.keys())
+        # print(type(state_dict))
+        # raise('')
+        
+        
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
         model = Model(opt.cfg, ch=3, nc=nc).to(device)  # create
 
     # Freeze
-    freeze = []  # parameter names to freeze (full or partial)
+    freeze = ['model.%s.' % x for x in range(12)]  # parameter names to freeze (full or partial)
     for k, v in model.named_parameters():
         v.requires_grad = True  # train all layers
         if any(x in k for x in freeze):
@@ -181,6 +194,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
         # Epochs
         start_epoch = ckpt['epoch'] + 1
+        start_epoch = 0
+        # print('start_epoch ', start_epoch)
         if opt.resume:
             assert start_epoch > 0, '%s training to %g epochs is finished, nothing to resume.' % (weights, epochs)
         if epochs < start_epoch:
@@ -230,12 +245,14 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         test_loader = {}
         for key in val_:
             test_path = data_dict[key]
-            test_loader[key] = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
+            # test_loader[key] = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
+            #                             hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
+            #                             world_size=opt.world_size, workers=opt.workers,
+            #                             pad=0.5, prefix=colorstr('val: '))[0]
+            test_loader[key] = create_dataloader(test_path, imgsz_test, 16, gs, opt,  # testloader
                                         hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True, rank=-1,
                                         world_size=opt.world_size, workers=opt.workers,
                                         pad=0.5, prefix=colorstr('val: '))[0]
-
-
         if not opt.resume:
             labels = np.concatenate(dataset.labels, 0)
             c = torch.tensor(labels[:, 0])  # classes
@@ -317,70 +334,72 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             
             # if debug == 5: break
             # debug += 1
+            try:
+                ni = i + nb * epoch  # number integrated batches (since train start)
+                imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
 
-            ni = i + nb * epoch  # number integrated batches (since train start)
-            imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
+                # Warmup
+                if ni <= nw:
+                    xi = [0, nw]  # x interp
+                    # model.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
+                    accumulate = max(1, np.interp(ni, xi, [1, nbs / total_batch_size]).round())
+                    for j, x in enumerate(optimizer.param_groups):
+                        # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
+                        x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
+                        if 'momentum' in x:
+                            x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
 
-            # Warmup
-            if ni <= nw:
-                xi = [0, nw]  # x interp
-                # model.gr = np.interp(ni, xi, [0.0, 1.0])  # iou loss ratio (obj_loss = 1.0 or iou)
-                accumulate = max(1, np.interp(ni, xi, [1, nbs / total_batch_size]).round())
-                for j, x in enumerate(optimizer.param_groups):
-                    # bias lr falls from 0.1 to lr0, all other lrs rise from 0.0 to lr0
-                    x['lr'] = np.interp(ni, xi, [hyp['warmup_bias_lr'] if j == 2 else 0.0, x['initial_lr'] * lf(epoch)])
-                    if 'momentum' in x:
-                        x['momentum'] = np.interp(ni, xi, [hyp['warmup_momentum'], hyp['momentum']])
+                # Multi-scale
+                if opt.multi_scale:
+                    sz = random.randrange(int(imgsz * 0.7), int(imgsz * 1.0) + gs) // gs * gs  # size
+                    sf = sz / max(imgs.shape[2:])  # scale factor
+                    if sf != 1:
+                        ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
+                        imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
-            # Multi-scale
-            if opt.multi_scale:
-                sz = random.randrange(int(imgsz * 0.7), int(imgsz * 1.0) + gs) // gs * gs  # size
-                sf = sz / max(imgs.shape[2:])  # scale factor
-                if sf != 1:
-                    ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
-                    imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
+                # Forward
+                with amp.autocast(enabled=cuda):
+                    pred = model(imgs)  # forward
+                    loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+                    if rank != -1:
+                        loss *= opt.world_size  # gradient averaged between devices in DDP mode
+                    if opt.quad:
+                        loss *= 4.
 
-            # Forward
-            with amp.autocast(enabled=cuda):
-                pred = model(imgs)  # forward
-                loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
-                if rank != -1:
-                    loss *= opt.world_size  # gradient averaged between devices in DDP mode
-                if opt.quad:
-                    loss *= 4.
+                # Backward
+                scaler.scale(loss).backward()
 
-            # Backward
-            scaler.scale(loss).backward()
+                # Optimize
+                if ni % accumulate == 0:
+                    scaler.step(optimizer)  # optimizer.step
+                    scaler.update()
+                    optimizer.zero_grad()
+                    if ema:
+                        ema.update(model)
 
-            # Optimize
-            if ni % accumulate == 0:
-                scaler.step(optimizer)  # optimizer.step
-                scaler.update()
-                optimizer.zero_grad()
-                if ema:
-                    ema.update(model)
+                # Print
+                if rank in [-1, 0]:
+                    mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
+                    mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
+                    s = ('%10s' * 2 + '%10.4g' * 6) % (
+                        '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
+                    pbar.set_description(s)
 
-            # Print
-            if rank in [-1, 0]:
-                mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
-                mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
-                s = ('%10s' * 2 + '%10.4g' * 6) % (
-                    '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
-                pbar.set_description(s)
+                    
 
-                
+                    # Plot
+                    if plots and ni < 3:
+                        f = save_dir / f'train_batch{ni}.jpg'  # filename
+                        Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
+                        # if tb_writer:
+                        #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
+                        #     tb_writer.add_graph(model, imgs)  # add model to tensorboard
+                    elif plots and ni == 10 and wandb:
+                        wandb.log({"Mosaics": [wandb.Image(str(x), caption=x.name) for x in save_dir.glob('train*.jpg')
+                                            if x.exists()]}, commit=False)
 
-                # Plot
-                if plots and ni < 3:
-                    f = save_dir / f'train_batch{ni}.jpg'  # filename
-                    Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
-                    # if tb_writer:
-                    #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
-                    #     tb_writer.add_graph(model, imgs)  # add model to tensorboard
-                elif plots and ni == 10 and wandb:
-                    wandb.log({"Mosaics": [wandb.Image(str(x), caption=x.name) for x in save_dir.glob('train*.jpg')
-                                           if x.exists()]}, commit=False)
-
+            except:
+                print('OOM skip batch')
             # end batch ------------------------------------------------------------------------------------------------
         # end epoch ----------------------------------------------------------------------------------------------------
         
