@@ -8,7 +8,7 @@ val_r10: dataset/fold3/images/val_R10
 val_other: dataset/fold3/images/val_R_other
 val_all: dataset/fold3/images/val_all
 
-val: dataset/test
+val: dataset/fold3/images/val_all
 
 # number of classes
 nc: 14

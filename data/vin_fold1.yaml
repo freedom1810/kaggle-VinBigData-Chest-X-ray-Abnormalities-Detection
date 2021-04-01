@@ -1,13 +1,13 @@
 
 # train and val data as 1) directory: path/images/, 2) file: path/images.txt, or 3) list: [path1/images/, path2/images/]
 # train: /home/hana/sonnh/kaggle-vin/dataset/yolov5/1/fold0/images/train
-train: dataset/fold1/images/train
+train: dataset/fold1/images/train_960
 val_r8: dataset/fold1/images/val_R8
 val_r9: dataset/fold1/images/val_R9
 val_r10: dataset/fold1/images/val_R10
 val_other: dataset/fold1/images/val_R_other
-
-val: dataset/test
+val_all: dataset/fold1/images/val_all
+val: dataset/fold1/images/val_all
 
 # number of classes
 nc: 14
