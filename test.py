@@ -8,7 +8,7 @@ import numpy as np
 import torch
 import yaml
 from tqdm import tqdm
-
+import time
 from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
@@ -103,6 +103,7 @@ def test(data,
 
     # debug = 0
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
+        # print(paths)
         # if debug == 20:
         #     break
         # debug += 1
@@ -111,7 +112,6 @@ def test(data,
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
         nb, _, height, width = img.shape  # batch size, channels, height, width
-
         with torch.no_grad():
             # Run model
             t = time_synchronized()
@@ -127,12 +127,159 @@ def test(data,
             lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
             t = time_synchronized()
             # out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
-            out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres,
+            out, out_conf, x_backup_2= non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres,
                                          labels=lb, multi_label=True, agnostic= False)
             t1 += time_synchronized() - t
+            
+        #remove box
+
+        #layer 3 # conf 
+        # black_list = []
+        # for si, pred in enumerate(out):
+        #     black_list.append([])
+        #     out_conf_i = out_conf[si]
+        #     labels = targets[targets[:, 0] == si, 1:]
+        #     nl = len(labels)
+        #     tcls = labels[:, 0].tolist() if nl else []  # target class
+        #     path = Path(paths[si])
+        #     seen += 1
+
+        #     if len(pred) == 0:
+        #         if nl:
+        #             stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
+        #         continue
+
+        #     # Predictions
+        #     predn = pred.clone()
+        #     scale_coords(img[si].shape[1:], predn[:, :4], shapes[si][0], shapes[si][1])  # native-space pred
+
+        #     box = xyxy2xywh(predn[:, :4])  # xywh
+        #     box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
+        #     box = box.tolist()
+
+        #     list_small_image = []
+        #     image_ori = cv2.imread(paths[si])
+        #     height, width, _ = image_ori.shape
+            
+        #     layer3_predict_ = None
+            
+        #     # tic = time.time()
+        #     list_bbox = []
+        #     for i in range(len(box)):
+        #         xmin, ymin, w, h = box[i]
+        #         if w < 10 or h < 10:
+        #             black_list[si].append(i)
+        #             xmin, ymin, xmax, ymax = 1,1,2,2
+        #         else:
+        #             xmin = int(xmin)
+        #             ymin = int(ymin)
+        #             xmax = xmin + int(w)
+        #             ymax = ymin + int(h)
+                
+        #         list_bbox.append([xmin/width, ymin/height, xmax/width, ymax/height])
+
+        #         small_image = image_ori[ymin:ymax, xmin:xmax]
+        #         # print(small_image.shape)
+        #         # print(image_ori.shape)
+
+
+        #         small_image = cv2.resize(small_image, (256, 256))
+                
+        #         small_image = eval_transform(image=small_image)["image"].unsqueeze(0)
+
+        #         # print(small_image.shape)
+        #         list_small_image.append(small_image)
+
+        #     # print('time 1 ', time.time() - tic)
+        #     # tic = time.time()
+        #     list_small_image  = torch.cat(list_small_image, 0).to(training_params['device'])
+
+        #     batch_index = 0
+        #     bs = 240
+
+        #     list_bbox = torch.tensor(list_bbox).to(training_params['device'])
+
+        #     out_conf_final = torch.cat((out_conf_i, list_bbox), 1)
+
+        #     with torch.no_grad():
+        #         while batch_index + bs < len(list_small_image):
+        #             # print(1)
+                    
+        #             layer3_predict, _ = layer3_model(list_small_image[batch_index: batch_index + bs], 
+        #                                                 out_conf_final[batch_index: batch_index + bs])
+        #             batch_index += bs
+        #             if layer3_predict_ is None:
+        #                 layer3_predict_ = layer3_predict.detach().cpu()
+        #             else:
+        #                 layer3_predict_ = torch.cat([layer3_predict_, layer3_predict.detach().cpu()], 0)
+
+                
+        #         if batch_index < len(list_small_image):
+        #             layer3_predict, _ = layer3_model(list_small_image[batch_index:], 
+        #                                                 out_conf_final[batch_index:])
+
+        #             if layer3_predict_ is None:
+        #                 layer3_predict_ = layer3_predict.detach().cpu()
+        #             else:
+        #                 layer3_predict_ = torch.cat([layer3_predict_, layer3_predict.detach().cpu()], 0)
+
+        #     layer3_predict = layer3_predict_
+        #     layer3_predict = layer3_predict.squeeze().detach().cpu().numpy()
+        #     layer3_predict = np.atleast_1d(layer3_predict)
+        #     layer3_predict = sigmoid(layer3_predict)
+
+        #     for layer_3_i in range(len(layer3_predict)):
+        #         if layer_3_i in black_list[si]:
+        #             layer3_predict[layer_3_i] = layer3_predict[layer_3_i] * 0
+
+        #         if  np.argmax(layer3_predict[layer_3_i]) == 14  and layer3_predict[layer_3_i][-1] > 0.95:
+        #             black_list[si].append(layer_3_i)
+        #             layer3_predict[layer_3_i] = layer3_predict[layer_3_i] * 0
+
+        #     # layer3_predict = layer3_predict[:,:14]
+        #     # print('layer3_predict', layer3_predict.shape)
+        #     # print('x_backup_2', x_backup_2[si].shape)
+        #     # x_backup_2[si][4:5] = 1
+        #     # x_backup_2[si][:, 5:] = torch.tensor(layer3_predict)
+        #     # x[:, 5:] *= x[:, 4:5] = obj_conf * cls_conf
+
+        #     for black_list_i in black_list[si]:
+        #         # print('dsaddsa', type(black_list_i))
+        #         # print(out[si][black_list_i].shape)
+        #         out[si][black_list_i, 4] = 0
+                
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        # list_out = []
+        # for j in range(len(x_backup_2)):
+        #     x_backup_2[j] = x_backup_2[j].unsqueeze(0)
+            
+        #     out, _ , _ = non_max_suppression(x_backup_2[j], conf_thres=conf_thres, iou_thres=iou_thres,
+        #                                 labels=lb, multi_label=True, agnostic= False)
+        #     list_out.append(out[0])
+        
+        # out = list_out
+
+
+        ###end layer 3
+
 
         # Statistics per image
         for si, pred in enumerate(out):
+            out_conf_i = out_conf[si]
             labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
             tcls = labels[:, 0].tolist() if nl else []  # target class
@@ -146,6 +293,7 @@ def test(data,
 
             # Predictions
             predn = pred.clone()
+
             scale_coords(img[si].shape[1:], predn[:, :4], shapes[si][0], shapes[si][1])  # native-space pred
 
             # Append to text file
@@ -173,11 +321,12 @@ def test(data,
                 image_id = int(path.stem) if path.stem.isnumeric() else path.stem
                 box = xyxy2xywh(predn[:, :4])  # xywh
                 box[:, :2] -= box[:, 2:] / 2  # xy center to top-left corner
-                for p, b in zip(pred.tolist(), box.tolist()):
+                for p, b , conf_list in zip(pred.tolist(), box.tolist(), out_conf_i.tolist()):
                     jdict.append({'image_id': image_id,
                                   'category_id': coco91class[int(p[5])] if is_coco else int(p[5]),
                                   'bbox': [round(x, 3) for x in b],
-                                  'score': round(p[4], 5)})
+                                  'score': round(p[4], 5),
+                                  'conf': conf_list})
 
             # Assign all predictions as incorrect
             correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
@@ -316,8 +465,8 @@ if __name__ == '__main__':
     # check_requirements()
 
     if opt.task in ['val', 'test']:  # run normally
-    #     for i in [50,33,57,36,55,31,54,71,80,53,83,60]:
-    #         opt.weights = '/media/sonnh/kaggle-vin/runs/train/train19_fold1_rad_split/weights/last{}.pt'.format(i)
+        # for i in range(30, 99):
+            # opt.weights = 'runs/train/train30_fold1_100_from_train_all/weights/last{}.pt'.format(i)
         test(opt.data,
             opt.weights,
             opt.batch_size,

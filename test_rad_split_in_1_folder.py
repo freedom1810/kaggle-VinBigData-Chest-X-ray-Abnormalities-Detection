@@ -30,7 +30,8 @@ def load_model(weights, opt):
     print(model.model[-1].anchor_grid.squeeze())
 
     return model, imgsz
-    
+
+
 def test(data,
          weights=None,
          batch_size=32,
@@ -40,7 +41,7 @@ def test(data,
          save_json=False,
          single_cls=False,
          augment=False,
-         verbose=True,
+         verbose=False,
          model=None,
          dataloader=None,
          save_dir=Path(''),  # for saving images
@@ -57,17 +58,22 @@ def test(data,
 
     else:  # called directly
         set_logging()
+        device = select_device(opt.device, batch_size=batch_size)
 
         # Directories
         save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
         (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
 
+        # Load model
+        model = attempt_load(weights, map_location=device)  # load FP32 model
+        imgsz = check_img_size(imgsz, s=model.stride.max())  # check img_size
+        print(model.model[-1].anchor_grid.squeeze())
+
         # Multi-GPU disabled, incompatible with .half() https://github.com/ultralytics/yolov5/issues/99
         # if device.type != 'cpu' and torch.cuda.device_count() > 1:
-        # model = torch.nn.DataParallel(model,device_ids=[0, 1])
+        #     model = nn.DataParallel(model)
 
     # Half
-    half = True
     half = device.type != 'cpu'  # half precision only supported on CUDA
     if half:
         model.half()
@@ -77,7 +83,7 @@ def test(data,
     is_coco = False
     # is_coco = data.endswith('coco.yaml')  # is COCO dataset
     # with open(data) as f:
-    #     data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+        # data = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
     # check_dataset(data)  # check
     nc = 1 if single_cls else int(data['nc'])  # number of classes
     # iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
@@ -224,7 +230,7 @@ def test(data,
             Thread(target=plot_images, args=(img, targets, paths, f, names), daemon=True).start()
             f = save_dir / f'test_batch{batch_i}_pred.jpg'  # predictions
             Thread(target=plot_images, args=(img, output_to_target(out), paths, f, names), daemon=True).start()
-        # if batch_i == 10:break
+
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
@@ -318,11 +324,7 @@ if __name__ == '__main__':
     print(opt)
     # check_requirements()
 
-
-    data_path = {'val_r8': '/home/hana/sonnh/kaggle-vin/kaggle-VinBigData-Chest-X-ray-Abnormalities-Detection/dataset/fold2/images/val_R8',
-                'val_r9': '//home/hana/sonnh/kaggle-vin/kaggle-VinBigData-Chest-X-ray-Abnormalities-Detection/dataset/fold2/images/val_R9',
-                'val_r10': '/home/hana/sonnh/kaggle-vin/kaggle-VinBigData-Chest-X-ray-Abnormalities-Detection/dataset/fold2/images/val_R10',}
-                # 'val_other': '/home/hana/sonnh/kaggle-vin/dataset/yolov5/1_0.4/fold1/images/val_R_other'}
+    data_path = {'val_all': './dataset/fold2/images/val_all',}
     data_loader = {}
     
 
@@ -330,8 +332,7 @@ if __name__ == '__main__':
     res_csv = {'epoch': []}
     res_csv_40 = {'epoch': []}
 
-
-    for r in ['val_r8', 'val_r9', 'val_r10']:
+    for r in ['val_all']:
         for name in range(14):
         
             res_csv['{}_{}'.format(name, r)] = []
@@ -340,7 +341,7 @@ if __name__ == '__main__':
     # save_dir = './runs/train/exp72'
     mdoel_path = '/media/sonnh/kaggle-vin/runs/train/train23_fold2_rad_split'
     if opt.task in ['val', 'test']:  # run normally
-        for epoch in range(30, 100):
+        for epoch in range(20, 50):
             res_csv['epoch'].append(epoch)
             res_csv_40['epoch'].append(epoch)
 
@@ -382,5 +383,5 @@ if __name__ == '__main__':
                     res_csv['{}_{}'.format(name, rad)].append(ap50_per_class[i])
                     res_csv_40['{}_{}'.format(name, rad)].append(ap40_per_class[i])
                 
-            pd.DataFrame(res_csv).to_csv('{}/ap_50_per_class_per_rad.csv'.format(mdoel_path))
-            pd.DataFrame(res_csv_40).to_csv('{}/ap_40_per_class_per_rad.csv'.format(mdoel_path))
+            pd.DataFrame(res_csv).to_csv('{}/ap_50_per_class_per_rad_all_in_1_folder.csv'.format(mdoel_path))
+            pd.DataFrame(res_csv_40).to_csv('{}/ap_40_per_class_per_rad_all_in_1_folder.csv'.format(mdoel_path))

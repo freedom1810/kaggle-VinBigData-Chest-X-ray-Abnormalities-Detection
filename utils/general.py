@@ -412,10 +412,19 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
     t = time.time()
     output = [torch.zeros((0, 6), device=prediction.device)] * prediction.shape[0]
+    output_conf = [torch.zeros((0, 14), device=prediction.device)] * prediction.shape[0]
+    x_backup_2 = [torch.zeros((0, 19), device=prediction.device)] * prediction.shape[0]
+
+    # print()
+    # print()
+    # print('prediction.shape', prediction.shape)
+
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
+        x_backup_2[xi] = x.detach().clone()
+        # print(x.shape)
 
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]):
@@ -432,15 +441,26 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
         # Compute conf
         x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
+        
 
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
         box = xywh2xyxy(x[:, :4])
 
         # Detections matrix nx6 (xyxy, conf, cls)
+        # print('begin ', x.shape)
+
         if multi_label:
             i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
-            x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
+            # print('j ', j)
+            x_backup = x[i, 5:].detach()
+            x_backup_2[xi] = x_backup_2[xi][i]
+            x =  torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
+            
+            # print('after predict class ', x.shape) # có thể thêm box vì multi class có thể giảm box vì < conf
+            # print(x[:2, 5:])
         else:  # best class only
+            # print(x[:2, 5:])
+            # print(x[:2, 5:].max(1, keepdim=True))
             conf, j = x[:, 5:].max(1, keepdim=True)
             x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
 
@@ -457,7 +477,12 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         if not n:  # no boxes
             continue
         elif n > max_nms:  # excess boxes
-            x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence
+            index_ = x[:, 4].argsort(descending=True)[:max_nms]
+            x_backup = x_backup[index_]
+            x = x[index_]  # sort by confidence
+            x_backup_2[xi] = x_backup_2[xi][index_]
+            
+        # print('after remove max box  ', x.shape)
 
         # Batched NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
@@ -465,6 +490,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
+
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
@@ -474,11 +500,23 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
                 i = i[iou.sum(1) > 1]  # require redundancy
 
         output[xi] = x[i]
+        output_conf[xi] = x_backup[i]
+        x_backup_2[xi] = x_backup_2[xi][i]
+        
+        x_backup_2[xi][:, 5:] *= x_backup_2[xi][:, 4:5]  # conf = obj_conf * cls_conf
+        # print(x_backup_2[xi][0])
+        # print(output[xi][0])
+        # print(output_conf[xi][0])
+        # print('x_backup.shape ', x_backup.shape)
+        # print('x.shape ',x.shape)
+        # print('output[xi].shape ', output[xi].shape)
+        # print('x_backup_2.shape', x_backup_2[xi].shape)
+
         if (time.time() - t) > time_limit:
             print(f'WARNING: NMS time limit {time_limit}s exceeded')
             break  # time limit exceeded
 
-    return output
+    return output, output_conf, x_backup_2
 
 
 def strip_optimizer(f='weights/best.pt', s=''):  # from utils.general import *; strip_optimizer()
